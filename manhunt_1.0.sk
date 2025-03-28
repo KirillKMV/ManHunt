@@ -1,0 +1,145 @@
+# Создание команд с цветами
+on load:
+    # Устанавливаем границу мира в 16 блоков
+    execute console command "worldborder set 16"
+    execute console command "worldborder center world"
+	# Устанавливаем команды    
+    execute console command "team add speedrunner"
+    execute console command "team add hunter"
+    execute console command "team modify speedrunner color green"
+    execute console command "team modify hunter color red"
+
+# Команда для назначения игрока Speedrunner
+command /speedruner <player>:
+    permission: op
+    trigger:
+        if argument 1 is not set:
+            send "&cВы должны указать игрока!" to player
+            stop
+        set {_target} to argument 1
+        if {team::%{_target}%} is "speedrunner":
+            send "&cИгрок уже в команде Speedrunner!" to player
+        else:
+            set {team::%{_target}%} to "speedrunner"
+            execute console command "team join speedrunner %{_target}%"
+            send "&aИгрок %{_target}% теперь в команде &2Speedrunner!" to player
+            send "&aВы стали &2Speedrunner!" to {_target}
+
+# Команда для назначения игрока Hunter
+command /hunter <player>:
+    permission: op
+    trigger:
+        if argument 1 is not set:
+            send "&cВы должны указать игрока!" to player
+            stop
+        set {_target} to argument 1
+        if {team::%{_target}%} is "hunter":
+            send "&cИгрок уже в команде Hunter!" to player
+        else:
+            set {team::%{_target}%} to "hunter"
+            execute console command "team join hunter %{_target}%"
+            send "&aИгрок %{_target}% теперь в команде &cHunter!" to player
+            send "&cВы стали Hunter!" to {_target}
+
+# Обновление компаса у охотников, чтобы следовать за спидраннером
+on every 1 seconds:
+    # Проверяем, есть ли живые спидраннеры
+    delete {_aliveSpeedrunners::*}  # Очищаем список
+    loop all players:
+        if {team::%loop-player%} is "speedrunner":
+            add loop-player to {_aliveSpeedrunners::*}
+
+    # Если нет живых спидраннеров, останавливаем процесс
+    if {_aliveSpeedrunners::1} is not set:
+        stop
+
+    # Выбираем первого доступного спидраннера
+    set {_target} to {_aliveSpeedrunners::1}
+
+    # Обновляем компас у всех охотников
+    loop all players:
+        if {team::%loop-player%} is "hunter":
+            set loop-player's compass target to {_target}'s location
+
+
+# Команда /start - начало охоты
+command /start:
+    permission: op
+    trigger:
+        # Проверяем, есть ли хотя бы один Speedrunner в сети
+        clear {_aliveSpeedrunners::*}
+        loop all players:
+            if {team::%loop-player%} is "speedrunner":
+                add loop-player to {_aliveSpeedrunners::*}
+
+        # Проверяем, есть ли Speedrunners
+        if size of {_aliveSpeedrunners::*} = 0:
+            message "&cОшибка: Ни одного Speedrunner'а нет в сети!"
+            stop
+        
+        loop all players:
+            apply hunger 255 to loop-player for 6 seconds
+
+        send title "&aНачало через 5 секунд!" to player for 2 seconds
+
+        wait 5 seconds
+
+        # Лечим всех игроков до полного здоровья и насыпаем до дефолтного уровня
+        loop all players:
+            set health of loop-player to maximum health of loop-player
+            set food level of loop-player to 20
+            apply saturation 2 to loop-player for 1 second
+
+        execute console command "worldborder set 5000"
+        execute console command "worldborder center world"
+        broadcast "&6Охота началась! Удачи всем!"
+
+        # Выдаем эффекты охотникам
+        loop all players:
+            if {team::%loop-player%} is "hunter":
+                clear loop-player's inventory
+                apply blindness 5 to loop-player for 60 seconds
+                apply slowness 5 to loop-player for 60 seconds
+                apply mining fatigue 5 to loop-player for 60 seconds
+
+        # Чистим инвентарь спидраннеров
+        loop all players:
+            if {team::%loop-player%} is "speedrunner":
+                clear loop-player's inventory
+
+        # Выдаем компас охотникам
+        wait 3 minutes
+        loop all players:
+            if {team::%loop-player%} is "hunter":
+                give loop-player a compass
+
+
+# Обработка смерти Спидраннера
+on death of player:
+    if {team::%victim%} is "speedrunner":
+        broadcast "&cСпидраннер &e%victim% &cумер!"  
+
+        # Удаляем игрока из команды "speedrunner"
+        delete {team::%victim%}
+
+        # Добавляем игрока в команду "Spectators"
+        set {team::%victim%} to "Spectators"
+        
+        # Переводим игрока в режим наблюдателя
+        set gamemode of victim to spectator
+
+        # Телепортируем игрока в зону для наблюдателей
+        teleport victim to location (0, 100, 0) in world "world"
+
+        # Проверяем, остались ли живые спидраннеры
+        set {_aliveSpeedrunners} to 0  
+        loop all players:
+            if {team::%loop-player%} is "speedrunner":
+                add 1 to {_aliveSpeedrunners}  
+
+        send "&7[DEBUG] Осталось живых спидраннеров: %{_aliveSpeedrunners}%" to console
+
+        # Если живых спидраннеров **не осталось**, завершаем игру
+        if {_aliveSpeedrunners} <= 0:
+            broadcast "&cВсе спидраннеры мертвы! Игра окончена!"
+            stop
